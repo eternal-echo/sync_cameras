@@ -159,3 +159,8 @@ std::function<void(std::vector<char>, int)> save_frame = [](std::vector<char> fr
 ## 5. 总结
 
 本文演示了如何使用 `libv4l2cpp` 库，通过生产者消费者模型和多线程的方式，连续读取摄像头数据并保存图像。我们设计了一个灵活的架构，使用回调函数来解耦数据处理逻辑，为未来的扩展提供了便利。这个 Demo 项目为你深入了解 V4L2 的使用和视频捕获处理提供了一个良好的基础。
+
+## 参考代码
+
+- [libv4l2cpp](https://github.com/mpromonet/libv4l2cpp)：一个 C++ 封装的 V4L2 库，提供了更简单的接口来访问 V4L2 设备。
+- 完整的代码示例可以在 [GitHub 仓库](https://github.com/eternal-echo/capture_example) 中找到。本文的代码示例基于 `libv4l2cpp` 库，使用了 C++20 标准，需要安装 CMake 和 OpenCV 库。
