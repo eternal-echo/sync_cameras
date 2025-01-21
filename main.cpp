@@ -7,6 +7,8 @@
 #include <memory>  // For smart pointers
 #include <filesystem>
 
+#include <csignal>
+
 #include <opencv2/opencv.hpp> 
 #include <spdlog/spdlog.h>      // spdlog for logging
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -148,6 +150,7 @@ void parse_args(int argc, char* argv[], std::string& device, int& width,
     }
 }
 
+std::atomic<bool> *stop_ptr;
 int main(int argc, char* argv[]) {
     std::string device = "/dev/video0";  // Default device path
     int width = 640, height = 480, fps = 0;
@@ -169,9 +172,13 @@ int main(int argc, char* argv[]) {
     std::mutex frame_mutex;
     std::condition_variable cv;
     std::atomic<bool> stop(false);
+    stop_ptr = &stop;
 
     // Capture thread
     std::unique_ptr<V4l2Capture> video_ctx = init_v4l2_capture(device, format, width, height, fps, ioTypeIn);
+    // signal stop
+    std::signal(SIGINT, [](int) { *stop_ptr = true; spdlog::info("Stopping..."); });
+
     std::thread capture_thread(capture_function, std::ref(video_ctx), std::ref(frame_queue), std::ref(frame_mutex), std::ref(cv), std::ref(stop));
     std::function<void(std::vector<char>, int)> save_frame = [](std::vector<char> frame, int frame_count) {
         // Process the frame here
