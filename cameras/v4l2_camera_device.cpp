@@ -153,6 +153,7 @@ std::shared_ptr<buffer> v4l2_camera_device::get_frame()
         
         // 调整buffer大小为实际读取的字节数
         frame->resize(bytes_read);
+        frame->set_timestamp(m_timestamp);
         
         return frame;
     } catch (const std::exception& e) {
@@ -175,4 +176,37 @@ int64_t v4l2_camera_device::get_timestamp() const
 int v4l2_camera_device::get_camera_id() const
 {
     return m_camera_id;
+}
+
+/**
+ * @brief 获取实际宽度
+ */
+unsigned int v4l2_camera_device::get_width() const
+{
+    if (m_capture) {
+        return m_capture->getWidth();
+    }
+    return m_width;
+}
+
+/**
+ * @brief 获取实际高度
+ */
+unsigned int v4l2_camera_device::get_height() const
+{
+    if (m_capture) {
+        return m_capture->getHeight();
+    }
+    return m_height;
+}
+
+/**
+ * @brief 获取实际格式
+ */
+unsigned int v4l2_camera_device::get_format() const
+{
+    if (m_capture) {
+        return m_capture->getFormat();
+    }
+    return m_format;
 }

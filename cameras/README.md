@@ -55,7 +55,7 @@ make
 回到第一个终端，运行示例程序：
 ```bash
 # 运行示例程序
-./bin/v4l2_camera_example
+./bin/v4l2_camera_example -n
 ```
 
 ## 在其他项目中使用

@@ -42,6 +42,27 @@ public:
     int64_t get_timestamp() const override;
     int get_camera_id() const override;
 
+    /**
+     * @brief 获取实际分辨率的方法
+     * 
+     * @return 图像宽度
+     */
+    unsigned int get_width() const;
+
+    /**
+     * @brief 获取实际分辨率的方法
+     * 
+     * @return 图像高度
+     */
+    unsigned int get_height() const;
+
+    /**
+     * @brief 获取实际分辨率的方法
+     * 
+     * @return 像素格式
+     */
+    unsigned int get_format() const;
+
 private:
     std::string m_device_path;       // 设备路径
     unsigned int m_width;            // 图像宽度
