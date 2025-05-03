@@ -1,4 +1,20 @@
-# 同步
+# 多摄像头同步采集系统
+
+## 1. 项目概述
+
+本项目旨在构建一个高精度多摄像头同步采集系统，支持单机多摄像头同步和多客户端跨设备同步。系统采用模块化设计，提供微秒级的帧同步精度，适用于3D重建、动作捕捉、多视角视觉等应用场景。
+
+### 核心设计目标
+
+- **高精度同步**：实现微秒级的摄像头帧同步
+- **灵活扩展性**：支持多种摄像头类型和同步策略
+- **分层同步架构**：单机内同步 + 多客户端跨设备同步
+- **高效数据处理**：最小化内存拷贝，支持高分辨率、高帧率视频处理
+
+## 2. 系统架构
+
+### 2.1 架构图
+
 ```mermaid
 classDiagram
     class buffer {
@@ -115,252 +131,821 @@ classDiagram
     frame_group o-- buffer : contains
 ```
 
-- 系统整体流程
-    - **初始化阶段**：
-        - 服务器启动PTP主时钟
-        - 各客户端启动并同步到PTP时钟
-        - 客户端初始化并配置多个摄像头
-    - **单客户端内同步采集**：
-        - 使用同步屏障实现多摄像头同时采集
-        - 为每一帧标记PTP时间戳
-        - 形成同步帧组
-    - **多客户端同步控制**：
-        - 客户端向服务器报告帧组时间戳
-        - 服务器计算各客户端间的相对偏差
-        - 服务器向各客户端发送延迟调整指令
-        - 客户端应用延迟调整，实现跨客户端帧对齐
-    - **高效传输实现**：
-        - 对齐后的视频帧进行压缩编码
-        - 根据网络带宽动态调整编码质量
-        - 通过高效传输协议向服务器发送同步帧
-- 单客户端多摄像头同步（同步屏障法）
-    
-    同步屏障法确保单个客户端上的所有摄像头能够尽可能同时捕获图像：
-    
-    - **工作原理**：
-        - 为每个摄像头创建独立的捕获线程
-        - 使用同步屏障(Barrier)确保所有摄像头的采集触发尽可能同时进行
-        - 所有摄像头线程到达屏障点后同时被释放进行采集
-        - 采集完成后，为每一帧标记精确的PTP时间戳
-        - 收集所有摄像头的帧，形成一个同步帧组
-    - **优势**：
-        - 确定性更强，不依赖时间戳匹配算法
-        - 减少了帧存储需求，所有摄像头直接产生同步帧组
-        - 降低了处理延迟，更接近实时性要求
-    - **实现流程**：
-        1. 初始化阶段，创建所有摄像头线程
-        2. 进入同步循环：
-            - 所有线程到达屏障点
-            - 屏障释放，所有线程同时进行帧捕获
-            - 捕获完成，附加PTP时间戳
-            - 收集所有摄像头帧形成同步帧组
-            - 将同步帧组传递给后续处理
-    - 详细流程：单客户端多摄像头同步屏障实现
-        
-        客户端采集流程：
-        
-        1. 初始化多个摄像头设备
-        2. 为每个摄像头创建捕获线程
-        3. 主线程创建同步屏障，等待所有摄像头线程就绪
-        4. 所有线程到达屏障点后同时释放
-        5. 每个线程从对应摄像头读取一帧数据
-        6. 为每一帧添加精确的PTP时间戳
-        7. 所有线程完成帧采集后，收集形成同步帧组
-        8. 将同步帧组传递给帧处理器（保存或网络传输）
-        9. 重复步骤3-8
-        
-        同步屏障的关键是确保所有摄像头在同一时刻触发捕获操作，从而最大限度减少不同摄像头之间的时间偏差。由于同一客户端内的摄像头受相同CPU调度，这种方法能产生较好的同步效果。
-        
-- 多客户端之间的同步（服务器指令延迟调整）
-    
-    服务器通过计算各客户端时间戳偏差，下发延迟指令实现跨客户端同步：
-    
-    - **工作原理**：
-        - 所有客户端使用PTP时间同步协议与服务器同步基础时钟
-        - 客户端将自己的帧采集时间戳信息定期发送给服务器
-        - 服务器分析所有客户端的时间戳，计算相对偏差
-        - 服务器向各客户端发送延迟指令，指定每个客户端应额外延迟的时间
-        - 客户端根据指令调整自己的帧发送时间，实现跨客户端的帧对齐
-    - **优势**：
-        - 通过延迟调整实现确定性同步，而非后期匹配
-        - 利用了PTP时钟同步，保证了时间基准一致性
-        - 可动态适应不同客户端的处理能力和网络状况
-    - **实现流程**：
-        1. 服务器启动PTP主时钟，所有客户端同步到该时钟
-        2. 客户端每采集一组同步帧，向服务器发送采集时间戳
-        3. 服务器收集所有客户端的时间戳信息
-        4. 服务器计算各客户端相对于基准客户端的时间偏差
-        5. 服务器向各客户端发送延迟指令
-        6. 客户端接收指令，在帧发送前按指定时间延迟处理
-    - 详细流程：多客户端同步机制
-        
-        服务器同步流程：
-        
-        1. 启动PTP主时钟服务
-        2. 接收各客户端的帧时间戳信息
-        3. 选择一个**客户端**作为参考（通常是延迟最小的客户端）
-        4. 计算其他客户端相对于参考客户端的**时间戳偏差**
-        5. 为每个**客户端**计算所需的**延迟调整值**
-        6. 向各客户端发送**延迟调整指令**
-        7. 定期重复步骤2-6，动态调整不同客户端间的同步
-        
-        客户端调整流程：
-        
-        1. 同步到服务器的PTP时钟
-        2. 向服务器发送帧采集时间戳信息
-        3. 接收服务器的延迟调整指令
-        4. 在帧处理和发送前，按指定时间进行延迟
-        5. 发送调整后的同步帧组
-        
-        服务器计算延迟调整值的关键是识别各客户端间的时间戳差异模式，并计算最优的延迟值，使所有客户端的帧能够对齐到相同的虚拟时间点。
+## 3. 系统工作流程
 
-# 客户端多像头同步采集实现指南
+### 3.1 单机多摄像头同步（主要采用屏障同步即可）
 
-要实现客户端内的多摄像头同步采集功能，需要遵循以下原则、要求和编程指南，确保代码实现高效、稳定且满足系统同步需求。
+#### 实现步骤
 
-## 核心设计原则
+1. **初始化阶段**
+   ```cpp
+   // 创建同步管理器
+   auto manager = std::make_unique<sync_capture_manager>(BARRIER_SYNC);
+   
+   // 初始化多个摄像头并添加到管理器
+   for (const auto& config : camera_configs) {
+       auto camera = std::make_unique<v4l2_camera_device>(
+           config.device_path, config.width, config.height, 
+           config.format, config.camera_id);
+       
+       camera->initialize();
+       manager->add_camera(std::move(camera));
+   }
+   
+   // 初始化同步管理器
+   manager->initialize();
+   ```
 
-1. **同步优先原则**：将同步精度放在首位，即使会增加少量系统开销
-2. **模块化设计**：将摄像头管理、同步机制、帧处理等功能分离为独立模块
-3. **错误容忍设计**：系统应能处理摄像头临时失效等异常情况
-4. **低延迟优先**：减少不必要的数据拷贝和处理步骤
+2. **启动采集**
+   ```cpp
+   // 启动同步采集
+   manager->start_capture();
+   
+   // 采集循环
+   while (running) {
+       // 获取同步帧组（带超时）
+       auto frame_group = manager->get_sync_frame_group(100);
+       if (!frame_group) {
+           continue;
+       }
+       
+       // 处理同步帧组
+       process_frames(frame_group);
+   }
+   
+   // 停止采集
+   manager->stop_capture();
+   ```
 
-## 具体实现要求
+#### 3.1.1 屏障同步策略（Barrier Sync）
 
-### 1. 同步屏障机制实现
+**原理**：使用同步屏障确保所有摄像头线程同时开始采集，最大限度减少时间偏差。
 
-- 使用C++11或更高版本的同步原语（`std::barrier`）
-- 所有摄像头线程必须在同一时刻被释放进行采集
-- 考虑线程调度延迟，可实现预调度机制
-- 在精确的时间点释放屏障，确保采集同步性
-
-### 2. 摄像头采集线程管理
-
-- 为每个摄像头创建独立的高优先级线程
-- 使用实时调度策略（如SCHED_FIFO），减少线程调度延迟
-- 采用线程亲和性设置，将关键线程绑定到特定CPU核心
-- 避免线程间不必要的锁竞争
-
-### 3. 时间戳处理
-
-- 使用单调时钟（monotonic clock）作为本地时间基准
-- 为每个采集帧添加至少两个时间戳：
-    - 采集开始时间戳（用于同步判断）
-    - 采集完成时间戳（用于处理延迟分析）
-- 维护本地时钟与PTP时钟的映射关系
-- 确保时间戳精度至少达到微秒级
-
-### 4. 内存管理与缓冲区优化
-
-- 采用零拷贝或最少拷贝策略处理图像数据
-- 使用内存池预分配帧缓冲区，避免频繁内存分配
-- 考虑使用内存映射（mmap）直接访问摄像头缓冲区
-- 针对不同格式的图像数据采用适当的缓冲区对齐策略
-
-### 5. 跨客户端同步指令处理
-
-- 实现指令接收和处理模块，接收服务器的延迟调整指令
-- 设计精确的延迟执行机制，可基于高精度定时器
-- 为延迟指令引入序列号，确保按正确顺序应用调整
-- 维护延迟历史记录，用于分析和调试
-
-## 编程技术指南
-
-### 1. 低级别摄像头访问
-
-- 使用V4L2 API直接控制USB摄像头，避免高层封装引入的不确定性
-- 设置适当的缓冲区数量（通常4-8个）实现帧循环
-- 使用`VIDIOC_QBUF`和`VIDIOC_DQBUF`控制缓冲区循环
-- 考虑使用`select()`或`poll()`实现非阻塞式等待
-
-### 2. 线程同步与调度
-
-- 使用条件变量和互斥锁实现线程间的精确同步
-- 针对关键线程设置实时调度优先级
-- 使用`pthread_setaffinity_np()`绑定线程到特定CPU核心
-- 避免在关键路径上使用重量级同步原语
-
+**具体实现**：
 ```cpp
-// 实时线程设置示例
-void setRealtimeThreadPriority(pthread_t thread, int priority) {
-    struct sched_param param;
-    param.sched_priority = priority;
-    pthread_setschedparam(thread, SCHED_FIFO, &param);
-}
+class barrier_sync_strategy : public isync_strategy {
+public:
+    barrier_sync_strategy(size_t camera_count)
+        : _target_cameras(camera_count), 
+          _ready_count(0),
+          _camera_ready(camera_count, false),
+          _sync_point(0) {}
 
-void setThreadAffinity(pthread_t thread, int cpuCore) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(cpuCore, &cpuset);
-    pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
-}
+    bool wait_for_sync(int timeout_ms) override {
+        std::unique_lock<std::mutex> lock(_mutex);
+        
+        // 通知当前线程已就绪
+        int camera_id = get_current_camera_id();
+        _camera_ready[camera_id] = true;
+        _ready_count++;
+        
+        // 如果是最后一个到达的线程，设置下一个同步点
+        if (_ready_count == _target_cameras) {
+            // 设置下一个同步点为当前时间 + 固定偏移
+            _sync_point = get_timestamp_us() + SYNC_POINT_OFFSET_US;
+            _ready_count = 0;
+            std::fill(_camera_ready.begin(), _camera_ready.end(), false);
+            _cv.notify_all(); // 通知所有等待线程
+        } else {
+            // 等待直到所有摄像头就绪
+            auto deadline = std::chrono::steady_clock::now() + 
+                          std::chrono::milliseconds(timeout_ms);
+            _cv.wait_until(lock, deadline, 
+                        [this]() { return _ready_count == 0; });
+        }
+        
+        // 如果有同步点，精确等待到同步点
+        if (_sync_point > 0) {
+            lock.unlock(); // 解锁以避免持有锁时自旋等待
+            precise_wait_until(_sync_point);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    void notify_camera_ready(int camera_id) override {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (camera_id < _camera_ready.size()) {
+            _camera_ready[camera_id] = true;
+            _ready_count++;
+            if (_ready_count == _target_cameras) {
+                _sync_point = get_timestamp_us() + SYNC_POINT_OFFSET_US;
+                _ready_count = 0;
+                std::fill(_camera_ready.begin(), _camera_ready.end(), false);
+                _cv.notify_all();
+            }
+        }
+    }
 
+private:
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    size_t _target_cameras;
+    std::atomic<size_t> _ready_count;
+    std::vector<bool> _camera_ready;
+    int64_t _sync_point; // 微秒时间戳
+    
+    static constexpr int64_t SYNC_POINT_OFFSET_US = 5000; // 5ms预留时间
+};
 ```
 
-### 3. 同步屏障精确控制
-
-- 为屏障添加精确的时间控制，基于高精度计时器
-- 实现预测性同步，计算下一个最佳同步点
-- 考虑使用自适应等待策略，减少忙等待的CPU开销
-- 使用`std::chrono::high_resolution_clock`获取高精度时间
-
+**同步管理器中的使用方式**：
 ```cpp
-// 精确时间控制示例
-void preciseWaitUntil(int64_t targetTimeNs) {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto target = std::chrono::time_point<std::chrono::high_resolution_clock>(
-                    std::chrono::nanoseconds(targetTimeNs));
-
-    if (now < target) {
-        // 大部分时间使用休眠等待
-        auto sleepDuration = target - now - std::chrono::microseconds(50);
-        if (sleepDuration.count() > 0) {
-            std::this_thread::sleep_for(sleepDuration);
+void sync_capture_manager::capture_thread(int camera_id) {
+    // 设置线程优先级和亲和性
+    setRealtimeThreadPriority(pthread_self(), 90);
+    setThreadAffinity(pthread_self(), camera_id % get_cpu_cores());
+    
+    while (_running) {
+        // 1. 等待同步点
+        if (!_sync_strategy->wait_for_sync(100)) {
+            continue;
         }
+        
+        // 2. 同步点到达，所有摄像头同时开始采集
+        auto start_time = get_timestamp_us();
+        auto frame = _cameras[camera_id]->get_frame();
+        
+        if (frame) {
+            // 设置精确的捕获时间戳
+            frame->set_timestamp(start_time);
+            frame->set_sequence(_sequence_counter.fetch_add(1));
+            
+            // 添加到当前帧组
+            std::lock_guard<std::mutex> lock(_mutex);
+            if (_current_frame_group) {
+                _current_frame_group->add_frame(camera_id, std::move(frame));
+                
+                // 如果帧组完整，推送到队列
+                if (_current_frame_group->is_complete()) {
+                    _frame_groups.push(_current_frame_group);
+                    _current_frame_group = std::make_shared<frame_group>(_cameras.size());
+                    _cv.notify_one();
+                }
+            }
+        }
+    }
+}
+```
 
-        // 最后阶段使用自旋等待，确保精确性
-        while (std::chrono::high_resolution_clock::now() < target) {
-            // 短暂CPU暂停，降低能耗
-            _mm_pause();
+**优势**：
+- 同步精度高，理论上可达到微秒级
+- 确定性强，不依赖后期时间戳匹配
+- 适合延迟稳定的本地摄像头
+
+**限制**：
+- 需要所有摄像头都能正常工作
+- 对系统调度敏感
+
+#### 3.1.2 时间窗口同步策略（Time Window Sync）
+
+**原理**：为每个摄像头独立采集，通过时间窗口匹配相近时间的帧组成同步组。
+
+**具体实现**：
+```cpp
+class timestamp_sync_strategy : public isync_strategy {
+public:
+    timestamp_sync_strategy(int64_t tolerance_us = 1000)
+        : _tolerance_us(tolerance_us), _running(true) {
+        _sync_thread = std::thread(&timestamp_sync_strategy::sync_loop, this);
+    }
+    
+    ~timestamp_sync_strategy() {
+        _running = false;
+        if (_sync_thread.joinable()) {
+            _sync_thread.join();
+        }
+    }
+    
+    bool wait_for_sync(int timeout_ms) override {
+        // 时间窗口策略不需要等待，直接返回
+        return true;
+    }
+    
+    void add_frame(int camera_id, std::shared_ptr<buffer> frame) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _camera_frames[camera_id] = frame;
+        
+        // 尝试形成帧组
+        try_form_frame_groups();
+    }
+    
+    std::shared_ptr<frame_group> get_frame_group(int timeout_ms) {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_frame_groups.empty()) {
+            _cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                       [this]() { return !_frame_groups.empty(); });
+        }
+        
+        if (_frame_groups.empty()) {
+            return nullptr;
+        }
+        
+        auto group = _frame_groups.front();
+        _frame_groups.pop();
+        return group;
+    }
+
+private:
+    void try_form_frame_groups() {
+        // 检查是否有足够的帧
+        if (_camera_frames.size() < _min_cameras) {
+            return;
+        }
+        
+        // 找出所有帧的最小和最大时间戳
+        int64_t min_ts = std::numeric_limits<int64_t>::max();
+        int64_t max_ts = 0;
+        
+        for (const auto& [camera_id, frame] : _camera_frames) {
+            int64_t ts = frame->timestamp();
+            min_ts = std::min(min_ts, ts);
+            max_ts = std::max(max_ts, ts);
+        }
+        
+        // 如果时间戳差异在容差范围内，形成帧组
+        if (max_ts - min_ts <= _tolerance_us) {
+            auto group = std::make_shared<frame_group>(_camera_frames.size());
+            for (auto& [camera_id, frame] : _camera_frames) {
+                group->add_frame(camera_id, frame);
+            }
+            group->group_timestamp = min_ts;
+            group->group_id = _next_group_id++;
+            
+            _frame_groups.push(group);
+            _camera_frames.clear();
+            _cv.notify_one();
+        }
+    }
+    
+    void sync_loop() {
+        while (_running) {
+            // 定期检查过期帧
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            
+            std::lock_guard<std::mutex> lock(_mutex);
+            if (_camera_frames.empty()) {
+                continue;
+            }
+            
+            // 查找最老的帧
+            int64_t now = get_timestamp_us();
+            int64_t oldest_ts = now;
+            
+            for (const auto& [camera_id, frame] : _camera_frames) {
+                oldest_ts = std::min(oldest_ts, frame->timestamp());
+            }
+            
+            // 如果最老的帧已经超过超时时间，强制形成帧组
+            if (now - oldest_ts > _max_wait_us) {
+                try_form_frame_groups();
+            }
+        }
+    }
+
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    std::map<int, std::shared_ptr<buffer>> _camera_frames;
+    std::queue<std::shared_ptr<frame_group>> _frame_groups;
+    int64_t _tolerance_us;
+    size_t _min_cameras = 2;
+    int64_t _max_wait_us = 100000; // 100ms最大等待
+    uint64_t _next_group_id = 0;
+    std::atomic<bool> _running;
+    std::thread _sync_thread;
+};
+```
+
+**同步管理器中的使用方式**：
+```cpp
+void sync_capture_manager::capture_thread(int camera_id) {
+    while (_running) {
+        // 获取帧，不需要等待同步点
+        auto frame = _cameras[camera_id]->get_frame();
+        if (!frame) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
+        
+        // 添加到时间窗口同步器
+        auto ts_strategy = dynamic_cast<timestamp_sync_strategy*>(_sync_strategy.get());
+        if (ts_strategy) {
+            ts_strategy->add_frame(camera_id, std::move(frame));
         }
     }
 }
 
+std::shared_ptr<frame_group> sync_capture_manager::get_sync_frame_group(int timeout_ms) {
+    auto ts_strategy = dynamic_cast<timestamp_sync_strategy*>(_sync_strategy.get());
+    if (ts_strategy) {
+        return ts_strategy->get_frame_group(timeout_ms);
+    }
+    return nullptr;
+}
 ```
 
-### 4. 错误处理与恢复机制
+**优势**：
+- 容错性高，单个摄像头失效不影响整体
+- 不要求精确的线程同步
+- 适应摄像头帧率不一致的情况
 
-- 实现摄像头状态监控，检测设备异常
-- 当单个摄像头失效时，系统应继续运行其他摄像头
-- 设计自动恢复机制，定期尝试重连失效摄像头
-- 使用结构化异常处理，避免单点失败导致系统崩溃
+**限制**：
+- 同步精度取决于时间窗口大小
+- 可能会丢弃部分帧以保持同步
+- 需要更多的缓存管理
 
-### 5. 日志与调试
+#### 3.1.3 混合同步策略
 
-- 记录详细的同步相关时间戳和事件
-- 使用多级日志级别，平衡信息量和性能
-- 为每个关键组件建立性能指标监控
-- 开发特定的同步精度分析工具
+将屏障同步和时间窗口同步结合，充分发挥各自优势：
 
-## 性能优化指南
+**原理**：
+- 使用同步屏障尽量使摄像头在同一时刻开始采集
+- 同时使用时间窗口机制作为后备，处理可能的同步误差
+- 动态调整同步参数，适应系统状态变化
 
-1. **减少缓存争用**：设计数据结构时考虑CPU缓存行对齐
-2. **避免系统调用**：在关键路径上尽量减少系统调用次数
-3. **预取优化**：对帧缓冲区使用预取指令提高访问速度
-4. **SIMD加速**：使用SSE/AVX指令集加速图像处理和格式转换
-5. **锁优化**：使用无锁数据结构或细粒度锁，减少锁竞争
+**具体实现**：
+```cpp
+class hybrid_sync_strategy : public isync_strategy {
+public:
+    hybrid_sync_strategy(size_t camera_count, int64_t tolerance_us = 1000)
+        : _barrier(camera_count), 
+          _timestamp_sync(tolerance_us),
+          _use_barrier(true),
+          _performance_monitoring(true) {}
+    
+    bool wait_for_sync(int timeout_ms) override {
+        if (_use_barrier) {
+            return _barrier.wait_for_sync(timeout_ms);
+        } else {
+            return true; // 时间窗口模式不需要等待
+        }
+    }
+    
+    void notify_camera_ready(int camera_id) override {
+        if (_use_barrier) {
+            _barrier.notify_camera_ready(camera_id);
+        }
+    }
+    
+    void add_frame(int camera_id, std::shared_ptr<buffer> frame) {
+        _timestamp_sync.add_frame(camera_id, std::move(frame));
+        
+        if (_performance_monitoring) {
+            // 记录性能数据，用于动态调整
+            monitor_sync_performance(camera_id, frame->timestamp());
+        }
+    }
+    
+    std::shared_ptr<frame_group> get_frame_group(int timeout_ms) {
+        return _timestamp_sync.get_frame_group(timeout_ms);
+    }
 
-## 测试与验证方法
+private:
+    void monitor_sync_performance(int camera_id, int64_t timestamp) {
+        std::lock_guard<std::mutex> lock(_monitor_mutex);
+        
+        // 记录最新时间戳
+        _latest_timestamps[camera_id] = timestamp;
+        
+        // 如果有足够数据，分析同步精度
+        if (_latest_timestamps.size() >= 2 && 
+            _performance_samples.size() >= PERFORMANCE_SAMPLE_SIZE) {
+            
+            // 计算平均同步精度
+            int64_t avg_precision = calculate_average_precision();
+            
+            // 根据精度动态调整同步策略
+            if (avg_precision > PRECISION_THRESHOLD_US && _use_barrier) {
+                // 精度不佳，切换到时间窗口模式
+                _use_barrier = false;
+                log_debug("Switching to timestamp sync due to poor precision");
+            } else if (avg_precision <= PRECISION_THRESHOLD_US && !_use_barrier) {
+                // 精度良好，切回屏障模式
+                _use_barrier = true;
+                log_debug("Switching back to barrier sync");
+            }
+            
+            // 清除旧样本
+            _performance_samples.clear();
+        }
+        
+        // 如果收集到所有摄像头的时间戳，计算最大差异并记录
+        if (_latest_timestamps.size() == _camera_count) {
+            int64_t min_ts = std::numeric_limits<int64_t>::max();
+            int64_t max_ts = 0;
+            
+            for (const auto& [id, ts] : _latest_timestamps) {
+                min_ts = std::min(min_ts, ts);
+                max_ts = std::max(max_ts, ts);
+            }
+            
+            _performance_samples.push_back(max_ts - min_ts);
+            _latest_timestamps.clear();
+        }
+    }
+    
+    int64_t calculate_average_precision() {
+        if (_performance_samples.empty()) {
+            return 0;
+        }
+        
+        int64_t sum = 0;
+        for (int64_t sample : _performance_samples) {
+            sum += sample;
+        }
+        return sum / _performance_samples.size();
+    }
 
-1. **同步精度测试**：
-    - 建立同步精度测量基准，如使用LED闪烁器
-    - 分析不同摄像头间的帧时间差异，量化同步表现
-    - 使用统计方法评估系统长期同步稳定性
-2. **性能压力测试**：
-    - 测试在最大分辨率和帧率下的同步表现
-    - 评估系统在持续运行数小时后的稳定性
-    - 模拟网络延迟波动，测试服务器延迟指令的适应性
-3. **异常情况处理**：
-    - 测试摄像头断开连接时的系统行为
-    - 验证PTP时钟漂移情况下的同步维持能力
-    - 测试高CPU/内存负载下的同步性能
+    barrier_sync_strategy _barrier;
+    timestamp_sync_strategy _timestamp_sync;
+    std::atomic<bool> _use_barrier;
+    std::atomic<bool> _performance_monitoring;
+    
+    // 性能监控相关
+    std::mutex _monitor_mutex;
+    std::map<int, int64_t> _latest_timestamps;
+    std::vector<int64_t> _performance_samples;
+    size_t _camera_count;
+    
+    static constexpr size_t PERFORMANCE_SAMPLE_SIZE = 100;
+    static constexpr int64_t PRECISION_THRESHOLD_US = 5000; // 5ms
+};
+```
+
+**使用方式**：
+```cpp
+// 创建混合同步策略
+auto manager = std::make_unique<sync_capture_manager>(HYBRID_SYNC);
+
+// 调整参数
+auto hybrid_strategy = dynamic_cast<hybrid_sync_strategy*>(manager->get_sync_strategy());
+if (hybrid_strategy) {
+    hybrid_strategy->set_tolerance(2000);  // 2ms容差
+    hybrid_strategy->enable_performance_monitoring(true);
+}
+```
+
+**优势**：
+- 兼具屏障同步的高精度和时间窗口的容错性
+- 自适应调整，根据系统状态选择最优策略
+- 适用于更广泛的应用场景
+
+### 3.2 多客户端跨设备同步
+
+#### 3.2.1 PTP时钟同步基础
+
+**原理**：在多客户端系统中，首先通过PTP协议（IEEE 1588）建立统一的时间基准，然后基于这个共同时间域计算精确的时间偏移，实现多客户端间的同步。
+
+**时钟同步实现**：
+```cpp
+class ptp_clock_sync {
+public:
+    ptp_clock_sync(const std::string& interface, bool is_master = false)
+        : _interface(interface), _is_master(is_master), _running(false) {}
+    
+    bool start() {
+        if (_running) return true;
+        
+        // 配置PTP参数
+        std::string mode = _is_master ? "master" : "slave";
+        std::string cmd = "ptp4l -i " + _interface + 
+                         " --" + mode + 
+                         " -m -S -s --summary_interval -1";
+        
+        // 启动PTP守护进程
+        _ptp_thread = std::thread([this, cmd]() {
+            FILE* pipe = popen(cmd.c_str(), "r");
+            if (!pipe) {
+                std::cerr << "Failed to start PTP daemon" << std::endl;
+                return;
+            }
+            
+            _running = true;
+            char buffer[128];
+            while (_running && fgets(buffer, sizeof(buffer), pipe) != NULL) {
+                // 可以在这里解析PTP日志，获取时钟状态信息
+            }
+            
+            pclose(pipe);
+        });
+        
+        // 如果是slave模式，启动phc2sys进程同步系统时钟
+        if (!_is_master) {
+            _phc_thread = std::thread([this]() {
+                std::string cmd = "phc2sys -s " + _interface + 
+                                " -c CLOCK_REALTIME -w -m -S -O 0";
+                FILE* pipe = popen(cmd.c_str(), "r");
+                if (!pipe) {
+                    std::cerr << "Failed to start phc2sys" << std::endl;
+                    return;
+                }
+                
+                char buffer[128];
+                while (_running && fgets(buffer, sizeof(buffer), pipe) != NULL) {
+                    // 解析phc2sys输出，获取偏移信息
+                    parse_offset_info(buffer);
+                }
+                
+                pclose(pipe);
+            });
+        }
+        
+        return true;
+    }
+    
+    void stop() {
+        _running = false;
+        if (_ptp_thread.joinable()) _ptp_thread.join();
+        if (_phc_thread.joinable()) _phc_thread.join();
+    }
+    
+    // 获取当前PTP时间（微秒）
+    int64_t get_ptp_time() const {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        return ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+    }
+    
+    // 获取最后测量的时钟偏移（纳秒）
+    int64_t get_last_offset() const {
+        return _last_offset;
+    }
+
+private:
+    void parse_offset_info(const char* line) {
+        // 解析phc2sys输出行，提取时钟偏移值
+        // 例如: "phc2sys[236.465]: CLOCK_REALTIME phc offset -15 s2 freq +0 delay 989"
+        std::string str(line);
+        size_t pos = str.find("offset ");
+        if (pos != std::string::npos) {
+            int offset;
+            if (sscanf(str.c_str() + pos + 7, "%d", &offset) == 1) {
+                _last_offset = offset;
+            }
+        }
+    }
+
+    std::string _interface;
+    bool _is_master;
+    std::atomic<bool> _running;
+    std::thread _ptp_thread;
+    std::thread _phc_thread;
+    std::atomic<int64_t> _last_offset{0};
+};
+```
+
+#### 3.2.2 服务器端时间偏移计算
+
+在服务器端，通过收集各客户端的时间戳信息，计算精确的时间偏移值，并发送调整指令：
+
+**原理**：
+- 所有客户端已通过PTP协议同步到同一时钟基准
+- 服务器收集各客户端采集的同步帧组时间戳
+- 计算各客户端相对于参考客户端的精确时间偏移
+- 向各客户端发送时间偏移调整指令
+
+**具体实现**：
+```cpp
+class sync_server {
+public:
+    sync_server(int port = 8888) : _port(port), _running(false) {}
+    
+    void start() {
+        _server_thread = std::thread(&sync_server::server_loop, this);
+    }
+    
+    void stop() {
+        _running = false;
+        if (_server_thread.joinable()) {
+            _server_thread.join();
+        }
+    }
+
+private:
+    void server_loop() {
+        // 初始化网络服务
+        initialize_network();
+        
+        _running = true;
+        while (_running) {
+            // 接收客户端时间戳报告
+            auto client_timestamps = collect_timestamps(100);
+            
+            if (client_timestamps.size() < 2) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            
+            // 选择参考客户端（通常选择时间戳最早的客户端作为基准）
+            auto ref_client = select_reference_client(client_timestamps);
+            
+            // 计算每个客户端相对于参考客户端的时间偏移
+            std::map<std::string, int64_t> offsets;
+            for (const auto& entry : client_timestamps) {
+                if (entry.client_id != ref_client.client_id) {
+                    // 计算精确偏移值（微秒）
+                    int64_t offset = entry.timestamp - ref_client.timestamp;
+                    offsets[entry.client_id] = offset;
+                }
+            }
+            
+            // 向各客户端发送时间偏移调整指令
+            for (const auto& [client_id, offset] : offsets) {
+                send_adjustment_command(client_id, offset);
+            }
+            
+            // 记录同步状态
+            log_sync_status(ref_client.client_id, offsets);
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    }
+    
+    // 收集所有客户端的时间戳
+    std::vector<ClientTimestamp> collect_timestamps(int timeout_ms) {
+        // 从各连接的客户端读取时间戳报告
+        // 略...
+        return {};
+    }
+    
+    // 选择参考客户端
+    ClientTimestamp select_reference_client(const std::vector<ClientTimestamp>& timestamps) {
+        // 一般选择时间戳最早的客户端作为参考
+        auto ref = std::min_element(timestamps.begin(), timestamps.end(),
+                                   [](const auto& a, const auto& b) {
+                                       return a.timestamp < b.timestamp;
+                                   });
+        return *ref;
+    }
+    
+    // 发送调整指令
+    void send_adjustment_command(const std::string& client_id, int64_t offset) {
+        // 通过网络向指定客户端发送偏移调整值
+        // 略...
+    }
+    
+    int _port;
+    std::atomic<bool> _running;
+    std::thread _server_thread;
+};
+```
+
+#### 3.2.3 客户端时间偏移应用
+
+客户端接收服务器的时间偏移调整指令，并精确应用于采集流程：
+
+**原理**：
+- 客户端内部已通过同步屏障实现了本地多摄像头的精确同步
+- 接收服务器的时间偏移调整指令
+- 在处理或传输帧之前，应用精确的时间延迟
+
+**具体实现**：
+```cpp
+class sync_client {
+public:
+    sync_client(const std::string& server_addr, int port, const std::string& client_id)
+        : _server_addr(server_addr), _port(port), _client_id(client_id),
+          _time_adjustment(0), _running(false) {}
+    
+    void start() {
+        _client_thread = std::thread(&sync_client::client_loop, this);
+    }
+    
+    void stop() {
+        _running = false;
+        if (_client_thread.joinable()) {
+            _client_thread.join();
+        }
+    }
+    
+    // 报告帧组时间戳给服务器
+    void report_frame_group(int64_t timestamp) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _pending_reports.push_back(timestamp);
+    }
+    
+    // 获取当前的时间偏移调整值
+    int64_t get_time_adjustment() const {
+        return _time_adjustment;
+    }
+    
+    // 应用时间偏移，确保精确的延迟执行
+    void apply_time_adjustment(std::shared_ptr<frame_group> frames) {
+        int64_t adjustment = _time_adjustment.load();
+        
+        if (adjustment <= 0) {
+            // 无需调整或需要提前
+            return;
+        }
+        
+        // 精确延迟指定的时间
+        auto target_time = std::chrono::high_resolution_clock::now() + 
+                          std::chrono::microseconds(adjustment);
+        
+        // 使用精确等待函数
+        precise_wait_until(target_time);
+    }
+
+private:
+    void client_loop() {
+        // 初始化与服务器的连接
+        initialize_connection();
+        
+        _running = true;
+        while (_running) {
+            // 发送待处理的时间戳报告
+            send_pending_reports();
+            
+            // 接收服务器的调整指令
+            receive_adjustment_commands();
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    
+    void send_pending_reports() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        for (int64_t timestamp : _pending_reports) {
+            // 向服务器发送时间戳报告
+            // 略...
+        }
+        _pending_reports.clear();
+    }
+    
+    void receive_adjustment_commands() {
+        // 从服务器接收调整指令
+        // 更新 _time_adjustment 值
+        // 略...
+    }
+    
+    std::string _server_addr;
+    int _port;
+    std::string _client_id;
+    std::atomic<int64_t> _time_adjustment;
+    std::atomic<bool> _running;
+    std::thread _client_thread;
+    
+    std::mutex _mutex;
+    std::vector<int64_t> _pending_reports;
+};
+```
+
+#### 3.2.4 主客户端程序流程
+
+在具体的应用程序中，结合本地同步和跨设备同步：
+
+```cpp
+int main() {
+    // 1. 初始化PTP时钟同步
+    ptp_clock_sync ptp("eth0", false); // slave模式
+    ptp.start();
+    
+    // 等待PTP时钟稳定
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+    
+    // 2. 创建同步客户端
+    sync_client client("server.example.com", 8888, "client1");
+    client.start();
+    
+    // 3. 本地多摄像头同步
+    auto sync_manager = std::make_unique<sync_capture_manager>(BARRIER_SYNC);
+    
+    // 添加和初始化摄像头
+    for (const auto& config : camera_configs) {
+        auto camera = std::make_unique<v4l2_camera_device>(
+            config.device_path, config.width, config.height,
+            config.format, config.camera_id);
+        camera->initialize();
+        sync_manager->add_camera(std::move(camera));
+    }
+    
+    sync_manager->initialize();
+    sync_manager->start_capture();
+    
+    // 4. 主循环：同步采集、应用时间偏移、处理
+    while (running) {
+        // 获取本地同步帧组
+        auto frame_group = sync_manager->get_sync_frame_group(100);
+        if (!frame_group) {
+            continue;
+        }
+        
+        // 报告时间戳给同步服务器
+        client.report_frame_group(frame_group->group_timestamp);
+        
+        // 应用服务器计算的时间偏移
+        client.apply_time_adjustment(frame_group);
+        
+        // 现在所有客户端的帧都在同一时间点处理
+        process_frame_group(frame_group);
+    }
+    
+    // 5. 清理
+    sync_manager->stop_capture();
+    client.stop();
+    ptp.stop();
+    
+    return 0;
+}
+```
