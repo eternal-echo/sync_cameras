@@ -32,8 +32,8 @@ void show_usage(const char* program_name) {
     std::cout << "  -w WIDTH     设置宽度 (默认: 640)" << std::endl;
     std::cout << "  -h HEIGHT    设置高度 (默认: 480)" << std::endl;
     std::cout << "  -f FORMAT    设置格式 (MJPEG 或 YUYV, 默认: MJPEG)" << std::endl;
-    std::cout << "  -n           无GUI模式，不显示窗口" << std::endl;
     std::cout << "  -o DIR       指定输出目录 (默认: output)" << std::endl;
+    std::cout << "  -i INTERVAL  保存图片的间隔(ms) (默认: 100)" << std::endl;
     std::cout << "  --help       显示此帮助信息" << std::endl;
     std::cout << "示例:" << std::endl;
     std::cout << "  " << program_name << " -w 1280 -h 720 -f MJPEG /dev/video0" << std::endl;
@@ -49,14 +49,12 @@ cv::Mat convertToMat(const std::shared_ptr<buffer>& frame, int width, int height
     {
         case V4L2_PIX_FMT_YUYV:
         {
-            // YUYV格式
             cv::Mat yuyv(height, width, CV_8UC2, frame->data());
             cv::cvtColor(yuyv, result, cv::COLOR_YUV2BGR_YUYV);
             break;
         }
         case V4L2_PIX_FMT_MJPEG:
         {
-            // MJPEG格式
             try {
                 result = cv::imdecode(cv::Mat(1, frame->size(), CV_8UC1, frame->data()), cv::IMREAD_COLOR);
             } catch (const cv::Exception& e) {
@@ -65,11 +63,30 @@ cv::Mat convertToMat(const std::shared_ptr<buffer>& frame, int width, int height
             break;
         }
         default:
-            std::cout << "Unsupported format: " << format << std::endl;
+            std::cerr << "不支持的格式: " << format << std::endl;
             break;
     }
     
     return result;
+}
+
+// 格式化时间戳为字符串
+std::string formatTimestamp(int64_t timestamp_us)
+{
+    // 将微秒转换为秒和剩余微秒
+    auto seconds = timestamp_us / 1000000;
+    auto microseconds = timestamp_us % 1000000;
+    
+    // 转换为日历时间
+    auto time_point = std::chrono::system_clock::time_point(
+        std::chrono::seconds(seconds) + std::chrono::microseconds(microseconds));
+    auto time_t = std::chrono::system_clock::to_time_t(time_point);
+    
+    // 格式化输出
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S_")
+       << std::setfill('0') << std::setw(6) << microseconds;
+    return ss.str();
 }
 
 int main(int argc, char* argv[])
@@ -80,8 +97,8 @@ int main(int argc, char* argv[])
     int height = 480;
     unsigned int format = V4L2_PIX_FMT_MJPEG;
     int camera_id = 0;
-    bool no_gui = false;
     std::string output_dir = "output";
+    int save_interval = 100; // 保存图片的间隔(ms)
     
     // 解析命令行参数
     for (int i = 1; i < argc; ++i) {
@@ -95,16 +112,16 @@ int main(int argc, char* argv[])
         } else if (strcmp(argv[i], "-f") == 0 && i+1 < argc) {
             std::string fmt = argv[++i];
             if (fmt == "YUYV") format = V4L2_PIX_FMT_YUYV;
-        } else if (strcmp(argv[i], "-n") == 0) {
-            no_gui = true;
         } else if (strcmp(argv[i], "-o") == 0 && i+1 < argc) {
             output_dir = argv[++i];
+        } else if (strcmp(argv[i], "-i") == 0 && i+1 < argc) {
+            save_interval = std::stoi(argv[++i]);
         } else if (argv[i][0] != '-') {
             device_path = argv[i];
         }
     }
     
-    std::cout << "Starting V4L2 camera example on device: " << device_path 
+    std::cout << "启动 V4L2 摄像头示例: " << device_path 
               << " (" << width << "x" << height << ")" << std::endl;
     
     // 创建output目录
@@ -117,7 +134,7 @@ int main(int argc, char* argv[])
     // 创建并初始化摄像头
     auto camera = std::make_shared<v4l2_camera_device>(device_path, width, height, format, camera_id);
     if (!camera->initialize()) {
-        std::cerr << "Failed to initialize camera!" << std::endl;
+        std::cerr << "初始化摄像头失败!" << std::endl;
         return 1;
     }
     
@@ -129,39 +146,27 @@ int main(int argc, char* argv[])
     
     // 开始捕获
     if (!camera->start_capture()) {
-        std::cerr << "Failed to start capture!" << std::endl;
+        std::cerr << "启动捕获失败!" << std::endl;
         return 1;
     }
     
-    // GUI模式下创建窗口
-    if (!no_gui) {
-        try {
-            cv::namedWindow("Camera Feed", cv::WINDOW_AUTOSIZE);
-        } catch (const cv::Exception& e) {
-            std::cerr << "警告: 无法创建OpenCV窗口，切换到无GUI模式: " << e.what() << std::endl;
-            no_gui = true;
-        }
-    }
+    std::cout << "开始捕获图像，按 Ctrl+C 退出..." << std::endl;
     
     // 捕获循环
     int frames_count = 0;
-    auto start_time = std::chrono::steady_clock::now();
-    
-    if (!no_gui) {
-        std::cout << "Press ESC to exit" << std::endl;
-    } else {
-        std::cout << "无GUI模式运行中，按Ctrl+C退出" << std::endl;
-    }
+    uint64_t sequence = 0;
     
     while (true) {
         // 捕获一帧
         auto frame = camera->get_frame();
         if (!frame) {
-            std::cerr << "Failed to get frame!" << std::endl;
+            std::cerr << "无法获取帧!" << std::endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
         
+        // 设置序列号
+        frame->set_sequence(sequence++);
         frames_count++;
         
         // 转换图像
@@ -171,55 +176,29 @@ int main(int argc, char* argv[])
             continue;
         }
         
-        // 计算FPS
-        auto now = std::chrono::steady_clock::now();
-        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() / 1000.0;
-        double fps = frames_count / elapsed;
+        // 在图像上添加时间戳和序列号信息
+        std::string timestamp_text = "TS: " + std::to_string(frame->timestamp()) + 
+                                     " μs, Seq: " + std::to_string(frame->sequence());
+        cv::putText(image, timestamp_text, 
+                    cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                    cv::Scalar(0, 255, 0), 2);
         
-        // 显示FPS
-        cv::putText(image, "FPS: " + std::to_string(fps), 
-                cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0,
-                cv::Scalar(0, 255, 0), 2);
-        
-        // GUI模式下显示
-        if (!no_gui) {
-            try {
-                cv::imshow("Camera Feed", image);
-                
-                // 按ESC键退出
-                if (cv::waitKey(1) == 27) break;
-            } catch (const cv::Exception& e) {
-                std::cerr << "显示图像时出错，切换到无GUI模式: " << e.what() << std::endl;
-                no_gui = true;
-            }
-        }
-        
-        // 保存图像到output目录
-        auto time_now = std::chrono::system_clock::now();
-        auto time_t = std::chrono::system_clock::to_time_t(time_now);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            time_now.time_since_epoch()) % 1000;
-        
+        // 使用帧的时间戳来命名文件
+        std::string timestamp_str = formatTimestamp(frame->timestamp());
         std::stringstream filename;
-        filename << output_dir << "/frame_"
-                 << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S_")
-                 << std::setfill('0') << std::setw(3) << ms.count()
+        filename << output_dir << "/frame_" << timestamp_str 
+                 << "_seq" << std::setfill('0') << std::setw(6) << frame->sequence()
                  << ".jpg";
         
         cv::imwrite(filename.str(), image);
-        std::cout << "已保存: " << filename.str() << " (FPS: " << fps << ")" << std::endl;
+        std::cout << "已保存: " << filename.str() << std::endl;
         
-        // 无GUI模式下限制保存频率
-        if (no_gui) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+        // 根据指定的间隔等待
+        std::this_thread::sleep_for(std::chrono::milliseconds(save_interval));
     }
     
     // 停止捕获
     camera->stop_capture();
-    if (!no_gui) {
-        cv::destroyAllWindows();
-    }
     
     std::cout << "程序已退出，共捕获 " << frames_count << " 帧" << std::endl;
     

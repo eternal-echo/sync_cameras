@@ -12,7 +12,7 @@ add_executable(v4l2_camera_example v4l2_camera_example.cpp)
 # 设置包含目录
 target_include_directories(v4l2_camera_example
     PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/..  # 指向cameras根目录
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 # 链接库（直接使用目标名称）
