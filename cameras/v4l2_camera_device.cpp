@@ -129,8 +129,12 @@ std::shared_ptr<buffer> v4l2_camera_device::get_frame()
         m_timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
             now.time_since_epoch()).count();
             
-        // 估计需要的缓冲区大小（保守估计）
-        size_t buffer_size = m_width * m_height * 4;  // 足够大的缓冲区
+        // 估计需要的缓冲区大小
+        size_t buffer_size = m_capture->getBufferSize();
+        if (buffer_size == 0) {
+            std::cerr << "Invalid buffer size for device " << m_device_path << std::endl;
+            return nullptr;
+        }
         
         // 创建buffer对象
         auto frame = std::make_shared<buffer>(buffer_size);

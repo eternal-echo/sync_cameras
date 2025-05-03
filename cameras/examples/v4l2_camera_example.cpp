@@ -4,9 +4,25 @@
 #include <memory>
 #include <linux/videodev2.h>
 #include <opencv2/opencv.hpp>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
 
 #include "../v4l2_camera_device.hpp"
 #include "../buffer.hpp"
+
+// 确保目录存在，如果不存在则创建
+bool ensure_directory_exists(const std::string& path) {
+    try {
+        if (!std::filesystem::exists(path)) {
+            return std::filesystem::create_directory(path);
+        }
+        return true;
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "创建目录时出错: " << e.what() << std::endl;
+        return false;
+    }
+}
 
 // 将二进制数据转换为OpenCV格式
 cv::Mat convertToMat(const std::shared_ptr<buffer>& frame, int width, int height, unsigned int format)
@@ -62,6 +78,14 @@ int main(int argc, char* argv[])
     std::cout << "Starting V4L2 camera example on device: " << device_path 
               << " (" << width << "x" << height << ")" << std::endl;
     
+    // 创建output目录
+    std::string output_dir = "output";
+    if (!ensure_directory_exists(output_dir)) {
+        std::cerr << "创建输出目录失败!" << std::endl;
+        return 1;
+    }
+    std::cout << "图像将保存到: " << std::filesystem::absolute(output_dir) << std::endl;
+    
     // 创建并初始化摄像头
     auto camera = std::make_shared<v4l2_camera_device>(device_path, width, height, format, camera_id);
     if (!camera->initialize()) {
@@ -109,6 +133,21 @@ int main(int argc, char* argv[])
                     cv::Scalar(0, 255, 0), 2);
             
             cv::imshow("Camera Feed", image);
+            
+            // 保存图像到output目录
+            auto time_now = std::chrono::system_clock::now();
+            auto time_t = std::chrono::system_clock::to_time_t(time_now);
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                time_now.time_since_epoch()) % 1000;
+            
+            std::stringstream filename;
+            filename << output_dir << "/frame_"
+                     << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S_")
+                     << std::setfill('0') << std::setw(3) << ms.count()
+                     << ".jpg";
+            
+            cv::imwrite(filename.str(), image);
+            std::cout << "已保存: " << filename.str() << std::endl;
             
             // 按ESC键退出
             if (cv::waitKey(1) == 27) break;
