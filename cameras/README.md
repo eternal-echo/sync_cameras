@@ -1,5 +1,14 @@
 # V4L2摄像头库
 
+## 环境
+
+- 安装opencv和v4l2-loopback
+```bash
+sudo apt-get install libopencv-dev v4l2loopback-utils
+sudo modprobe v4l2loopback
+ls /dev/video*
+```
+
 ## 编译
 
 ```bash
