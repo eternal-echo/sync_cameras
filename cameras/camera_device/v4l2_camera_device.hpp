@@ -64,14 +64,14 @@ public:
     unsigned int get_format() const;
 
 private:
-    std::string m_device_path;       // 设备路径
-    unsigned int m_width;            // 图像宽度
-    unsigned int m_height;           // 图像高度
-    unsigned int m_format;           // 像素格式
-    int m_camera_id;                 // 摄像头ID
-    bool m_is_capturing;             // 是否正在捕获
-    int64_t m_timestamp;             // 最后一帧的时间戳
+    std::string _device_path;       // 设备路径
+    unsigned int _width;            // 图像宽度
+    unsigned int _height;           // 图像高度
+    unsigned int _format;           // 像素格式
+    int _camera_id;                 // 摄像头ID
+    bool _is_capturing;             // 是否正在捕获
+    int64_t _timestamp;             // 最后一帧的时间戳
     
-    std::unique_ptr<V4l2Capture> m_capture; // V4L2捕获设备
-    std::mutex m_mutex;                     // 互斥锁
+    std::unique_ptr<V4l2Capture> _capture; // V4L2捕获设备
+    std::mutex _mutex;                     // 互斥锁
 };

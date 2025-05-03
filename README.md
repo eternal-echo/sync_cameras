@@ -1,138 +1,118 @@
 # 同步
 ```mermaid
 classDiagram
+    class buffer {
+        -_data vector~uint8_t~
+        -_timestamp int64_t
+        -_sequence uint64_t
+        +buffer()
+        +buffer(size_t size, int64_t timestamp, uint64_t sequence)
+        +void* data()
+        +const void* data() const
+        +size_t size() const
+        +void resize(size_t new_size)
+        +void clear()
+        +int64_t timestamp() const
+        +void set_timestamp(int64_t timestamp)
+        +uint64_t sequence() const
+        +void set_sequence(uint64_t sequence)
+    }
+
     class icamera_device {
         <<interface>>
-        +initialize() bool
+        +~icamera_device() virtual
+        +bool initialize() virtual
+        +bool start_capture() virtual
+        +bool stop_capture() virtual
+        +shared_ptr~buffer~ get_frame() virtual
+        +int64_t get_timestamp() const virtual
+        +int get_camera_id() const virtual
+    }
+
+    class v4l2_camera_device {
+        -_device_path string
+        -_width uint
+        -_height uint
+        -_format uint
+        -_camera_id int
+        -_is_capturing bool
+        -_timestamp int64_t
+        -_capture unique_ptr~V4l2Capture~
+        -_mutex mutex
+        +v4l2_camera_device(device_path, width, height, format, camera_id)
+        +~v4l2_camera_device()
+        +bool initialize()
+        +bool start_capture()
+        +bool stop_capture()
+        +shared_ptr~buffer~ get_frame()
+        +int64_t get_timestamp() const
+        +int get_camera_id() const
+        +uint get_width() const
+        +uint get_height() const
+        +uint get_format() const
+    }
+    
+    class V4l2Capture {
+        <<external>>
+        +static V4l2Capture* create(params)
+        +uint getWidth()
+        +uint getHeight()
+        +uint getFormat()
+        +bool isReadable(timeval*)
+        +size_t read(char*, size_t)
+        +size_t getBufferSize()
+    }
+
+    class V4l2CustomCapture {
+        -_timestamp int64_t
+        -_use_kernel_timestamp bool
+        +static V4l2CustomCapture* create(device_path, width, height, format, fps)
+        +V4l2CustomCapture(V4l2Device*)
+        +~V4l2CustomCapture()
+        +shared_ptr~buffer~ captureFrame()
+        +int64_t getTimestamp() const
+        +void useKernelTimestamp(bool use)
+    }
+    
+    %% 未实现但在设计中的类
+    class sync_capture_manager {
+        <<planned>>
+        -_cameras vector~unique_ptr~icamera_device~~
+        -_sync_strategy unique_ptr~isync_strategy~
+        -_running atomic~bool~
+        -_sequence_counter atomic~uint64_t~
+        +initialize(camera_configs) bool
         +start_capture() bool
         +stop_capture() bool
-        +get_frame() shared_ptr~buffer~
-        +get_timestamp() int64_t
-        +get_camera_id() int
-    }
-
-    class v4l2_camera {
-        <<abstract>>
-        #fd_ int
-        #device_path_ string
-        #format_ v4l2_format
-        #buffers_ vector~shared_ptr~buffer~~
-        +initialize() bool
-        +start_capture() bool
-        +stop_capture() bool
-        #init_device() bool
-        #init_buffers() bool*
-    }
-
-    class v4l2_camera_read {
-        +get_frame() shared_ptr~buffer~
-        #init_buffers() bool
-    }
-
-    class v4l2_camera_mmap {
-        +get_frame() shared_ptr~buffer~
-        #init_buffers() bool
-    }
-
-    class v4l2_camera_userptr {
-        +get_frame() shared_ptr~buffer~
-        #init_buffers() bool
-    }
-
-    class buffer {
-        <<abstract>>
-        +data() uint8_t*
-        +size() size_t
-        +resize(size) void
-        +operator[](index) uint8_t&
-    }
-
-    class v4l2_mmap_buffer {
-        -mapped_addr_ void*
-        -size_ size_t
-        -fd_ int
-        -v4l2_buf_ v4l2_buffer
-        +v4l2_mmap_buffer(fd, buf)
-        +~v4l2_mmap_buffer()
-    }
-
-    class v4l2_userptr_buffer {
-        -data_ unique_ptr~uint8_t[]~
-        -size_ size_t
-        -capacity_ size_t
-        +v4l2_userptr_buffer(size)
+        +get_sync_frame_group() shared_ptr~frame_group~
+        -capture_thread(camera_id) void
     }
 
     class isync_strategy {
         <<interface>>
+        <<planned>>
         +wait_for_sync(timeout_ms) bool
         +adjust_phase(camera_id, offset) void
         +update_timestamps(timestamps) void
     }
 
-    class barrier_sync_strategy {
-        -mutex_ mutex
-        -cv_ condition_variable
-        -expected_cameras_ size_t
-        -ready_count_ atomic~size_t~
-        +wait_for_sync(timeout_ms) bool
-        +notify_camera_ready() void
-    }
-
-    class timestamp_sync_strategy {
-        -last_timestamps_ vector~int64_t~
-        -tolerance_us_ int64_t
-        +wait_for_sync(timeout_ms) bool
-        +are_timestamps_aligned() bool
-    }
-
-    class sync_capture_manager {
-        -cameras_ vector~unique_ptr~icamera_device~~
-        -sync_strategy_ unique_ptr~isync_strategy~
-        -frame_groups_ queue~frame_group~
-        -phase_offsets_ vector~atomic~int64_t~~
-        -running_ atomic~bool~
-        +initialize(configs) bool
-        +start_capture() bool
-        +stop_capture() bool
-        +get_sync_frame_group() optional~frame_group~
-        +adjust_phase(camera_id, offset) void
-        -capture_thread(camera_id) void
-    }
-
-    class frame {
-        +buffer shared_ptr~buffer~
-        +timestamp int64_t
-        +camera_id int
-    }
-
     class frame_group {
-        +frames vector~frame~
+        <<planned>>
+        +frames vector~shared_ptr~buffer~~
         +group_timestamp int64_t
         +group_id uint64_t
-        +get_max_timestamp_diff() int64_t
-        +is_well_synced(tolerance) bool
+        +is_well_synced(tolerance_us) bool
     }
 
-    icamera_device <|.. v4l2_camera : implements
-    v4l2_camera <|-- v4l2_camera_read
-    v4l2_camera <|-- v4l2_camera_mmap
-    v4l2_camera <|-- v4l2_camera_userptr
-    
-    buffer <|-- v4l2_mmap_buffer
-    buffer <|-- v4l2_userptr_buffer
-    
-    isync_strategy <|.. barrier_sync_strategy : implements
-    isync_strategy <|.. timestamp_sync_strategy : implements
-    
-    sync_capture_manager *-- icamera_device : manages 1..n
-    sync_capture_manager *-- isync_strategy : uses
-    sync_capture_manager o-- frame_group : produces
-    
-    frame_group *-- frame : contains 1..n
-    frame o-- buffer : contains
-    
-    v4l2_camera --> buffer : creates
+    icamera_device <|.. v4l2_camera_device : implements
+    v4l2_camera_device o-- V4l2Capture : uses
+    V4l2Capture <|-- V4l2CustomCapture : extends
+    v4l2_camera_device ..> buffer : creates
+    V4l2CustomCapture ..> buffer : creates
+    sync_capture_manager o-- icamera_device : manages
+    sync_capture_manager o-- isync_strategy : uses
+    sync_capture_manager ..> frame_group : produces
+    frame_group o-- buffer : contains
 ```
 
 - 系统整体流程

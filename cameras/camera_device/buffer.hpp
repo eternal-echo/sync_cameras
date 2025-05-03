@@ -14,7 +14,7 @@ public:
     /**
      * @brief 默认构造函数
      */
-    buffer() : m_timestamp(0), m_sequence(0) {}
+    buffer() : _timestamp(0), _sequence(0) {}
     
     /**
      * @brief 构造函数，预分配指定大小的内存
@@ -24,44 +24,44 @@ public:
      * @param sequence 初始序列号（可选）
      */
     explicit buffer(size_t size, int64_t timestamp = 0, uint64_t sequence = 0) 
-        : m_data(size, 0), m_timestamp(timestamp), m_sequence(sequence) {}
+        : _data(size, 0), _timestamp(timestamp), _sequence(sequence) {}
     
     /**
      * @brief 获取数据指针
      * 
      * @return void* 指向内部数据的指针
      */
-    void* data() { return m_data.data(); }
+    void* data() { return _data.data(); }
     
     /**
      * @brief 获取常量数据指针
      * 
      * @return const void* 指向内部数据的常量指针
      */
-    const void* data() const { return m_data.data(); }
+    const void* data() const { return _data.data(); }
     
     /**
      * @brief 获取缓冲区大小
      * 
      * @return size_t 缓冲区大小（字节）
      */
-    size_t size() const { return m_data.size(); }
+    size_t size() const { return _data.size(); }
     
     /**
      * @brief 调整缓冲区大小
      * 
      * @param new_size 新的缓冲区大小
      */
-    void resize(size_t new_size) { m_data.resize(new_size); }
+    void resize(size_t new_size) { _data.resize(new_size); }
     
     /**
      * @brief 清空缓冲区
      */
-    void clear() { m_data.clear(); }
+    void clear() { _data.clear(); }
 
     // 支持下标访问
-    uint8_t& operator[](size_t index) { return m_data[index]; }
-    const uint8_t& operator[](size_t index) const { return m_data[index]; }
+    uint8_t& operator[](size_t index) { return _data[index]; }
+    const uint8_t& operator[](size_t index) const { return _data[index]; }
 
     // 禁止拷贝，只允许移动
     buffer(const buffer&) = delete;
@@ -76,33 +76,33 @@ public:
      * 
      * @return int64_t 时间戳（微秒）
      */
-    int64_t timestamp() const { return m_timestamp; }
+    int64_t timestamp() const { return _timestamp; }
     
     /**
      * @brief 设置时间戳
      * 
      * @param timestamp 时间戳（微秒）
      */
-    void set_timestamp(int64_t timestamp) { m_timestamp = timestamp; }
+    void set_timestamp(int64_t timestamp) { _timestamp = timestamp; }
     
     /**
      * @brief 获取序列号
      * 
      * @return uint64_t 序列号
      */
-    uint64_t sequence() const { return m_sequence; }
+    uint64_t sequence() const { return _sequence; }
     
     /**
      * @brief 设置序列号
      * 
      * @param sequence 序列号
      */
-    void set_sequence(uint64_t sequence) { m_sequence = sequence; }
+    void set_sequence(uint64_t sequence) { _sequence = sequence; }
 
 protected:
-    int64_t m_timestamp;           // 时间戳（微秒）
-    uint64_t m_sequence;           // 序列号
+    int64_t _timestamp;           // 时间戳（微秒）
+    uint64_t _sequence;           // 序列号
 
 private:
-    std::vector<uint8_t> m_data;   // 内部数据存储
+    std::vector<uint8_t> _data;   // 内部数据存储
 };

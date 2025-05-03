@@ -65,6 +65,6 @@ public:
     void useKernelTimestamp(bool use);
 
 private:
-    int64_t m_timestamp;            // 最后一帧的时间戳（微秒）
-    bool m_use_kernel_timestamp;    // 是否使用内核时间戳
+    int64_t _timestamp;            // 最后一帧的时间戳（微秒）
+    bool _use_kernel_timestamp;    // 是否使用内核时间戳
 };

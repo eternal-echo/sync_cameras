@@ -52,8 +52,8 @@ V4l2CustomCapture* V4l2CustomCapture::create(const std::string& device_path,
  */
 V4l2CustomCapture::V4l2CustomCapture(V4l2Device* device)
     : V4l2Capture(device),
-      m_timestamp(0),
-      m_use_kernel_timestamp(true)
+      _timestamp(0),
+      _use_kernel_timestamp(true)
 {
 }
 
@@ -108,10 +108,10 @@ std::shared_ptr<buffer> V4l2CustomCapture::captureFrame()
         frame_buffer->resize(bytes_read);
         
         // 获取当前时间戳
-        if (!m_use_kernel_timestamp || !getDevice()->hasCapability(V4L2_CAP_TIMEPERFRAME)) {
+        if (!_use_kernel_timestamp || !getDevice()->hasCapability(V4L2_CAP_TIMEPERFRAME)) {
             // 使用系统时间戳
             auto now = std::chrono::high_resolution_clock::now();
-            m_timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+            _timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
                 now.time_since_epoch()).count();
         }
         // 注意：如果启用了内核时间戳，时间戳会在read方法内部由底层驱动更新
@@ -131,7 +131,7 @@ std::shared_ptr<buffer> V4l2CustomCapture::captureFrame()
  */
 int64_t V4l2CustomCapture::getTimestamp() const
 {
-    return m_timestamp;
+    return _timestamp;
 }
 
 /**
@@ -141,5 +141,5 @@ int64_t V4l2CustomCapture::getTimestamp() const
  */
 void V4l2CustomCapture::useKernelTimestamp(bool use)
 {
-    m_use_kernel_timestamp = use;
+    _use_kernel_timestamp = use;
 }
